@@ -1,0 +1,25 @@
+{
+  "devices": [
+    {
+      "id": "mesin-1",
+      "name": "Mesin 1",
+      "ip": "192.168.1.210",
+      "port": 4370,
+      "enabled": true
+    },
+    {
+      "id": "mesin-2",
+      "name": "Mesin 2",
+      "ip": "192.168.1.211",
+      "port": 4370,
+      "enabled": true
+    },
+    {
+      "id": "mesin-3",
+      "name": "Mesin 3",
+      "ip": "192.168.1.212",
+      "port": 4370,
+      "enabled": false
+    }
+  ]
+}

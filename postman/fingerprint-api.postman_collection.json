@@ -1,0 +1,1073 @@
+{
+  "info": {
+    "_postman_id": "47f19b97-6e96-4181-bc7e-55cc9fc28c44",
+    "name": "fingerprint-api",
+    "description": "# fingerprint-api\n\nKoleksi untuk API log absensi beberapa mesin fingerprint Solution (protokol ZKTeco).\n\n## Sebelum mulai\n\n1. Jalankan server: `npm start`\n2. Pilih environment **fingerprint-api - Local**, atau sesuaikan variabel `baseUrl`.\n\nAPI ini tidak memakai autentikasi, jadi tidak ada kunci yang perlu diisi.\n\n## Variabel\n\n| Variabel | Keterangan |\n| --- | --- |\n| `baseUrl` | Alamat server, default `http://localhost:3000` |\n| `start` | Awal rentang. Terisi otomatis ke tanggal 1 bulan berjalan bila kosong |\n| `end` | Akhir rentang. Terisi otomatis ke hari ini bila kosong |\n| `deviceId` | Terisi otomatis setelah menjalankan Daftar perangkat |\n| `userId` | Terisi otomatis setelah menjalankan Daftar karyawan |\n\n## Urutan folder\n\nFolder sengaja diurutkan agar Run collection bisa langsung jalan. Daftar\nperangkat dan Daftar karyawan berjalan lebih dulu untuk mengisi variabel\n`deviceId` dan `userId` yang dipakai folder berikutnya.\n\n## Catatan waktu respons\n\nServer menyegarkan cache sendiri di latar belakang dan menarik semua mesin\nsecara paralel, jadi request umumnya dijawab dalam puluhan milidetik.\nYang bisa lama hanya dua hal: request paling pertama setelah server hidup\ndengan cache masih kosong, dan request **Refresh cache** yang memang\nmemaksa unduhan penuh. Keduanya memakan sekitar satu menit, jadi pastikan\nRequest timeout di Postman Settings tidak dibatasi di bawah 120 detik.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Isi rentang tanggal default: tanggal 1 bulan berjalan sampai hari ini.",
+          "// pm.variables.get menelusuri environment lebih dulu, jadi nilai yang",
+          "// sudah kamu isi sendiri tidak akan ditimpa.",
+          "const pad = (n) => String(n).padStart(2, \"0\");",
+          "const asDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;",
+          "const today = new Date();",
+          "",
+          "if (!pm.variables.get(\"start\")) {",
+          "  pm.collectionVariables.set(\"start\", asDate(new Date(today.getFullYear(), today.getMonth(), 1)));",
+          "}",
+          "if (!pm.variables.get(\"end\")) {",
+          "  pm.collectionVariables.set(\"end\", asDate(today));",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Berlaku untuk semua request: amplop respons harus konsisten.",
+          "pm.test(\"Respons berbentuk JSON\", function () {",
+          "  pm.response.to.be.json;",
+          "});",
+          "",
+          "pm.test(\"Amplop respons konsisten dengan status HTTP\", function () {",
+          "  const body = pm.response.json();",
+          "  pm.expect(body.code, \"field code\").to.eql(pm.response.code);",
+          "  pm.expect(body.success, \"field success\").to.eql(pm.response.code < 400);",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "start",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "end",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deviceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Status",
+      "description": "Pemeriksaan cepat sebelum memakai endpoint lain.",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ],
+              "query": []
+            },
+            "description": "Status service, sumber data aktif, zona waktu proses, kondisi cache tiap\nmesin, dan jadwal sinkronisasi berikutnya.\n\nDijawab murni dari memori, jadi tetap cepat walaupun sinkronisasi sedang\nberjalan. Cocok dipakai sebagai target monitoring."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const info = pm.response.json().data;",
+                  "",
+                  "pm.test(\"Service hidup\", function () {",
+                  "  pm.expect(info.status).to.eql(\"ok\");",
+                  "});",
+                  "",
+                  "pm.test(\"Semua mesin aktif terbaca\", function () {",
+                  "  pm.expect(info.cache.pending, \"mesin yang belum sync\").to.be.an(\"array\").that.is.empty;",
+                  "});",
+                  "",
+                  "console.log(\"Zona waktu server:\", info.timezone);",
+                  "console.log(\"Mesin online:\", info.cache.devicesOnline, \"dari\", info.cache.totalDevices);",
+                  "console.log(\"Total log gabungan:\", info.cache.totalRecords, \"| karyawan:\", info.cache.totalUsers);",
+                  "console.log(\"Sync berikutnya:\", info.scheduler.nextRunAt);",
+                  "",
+                  "info.cache.devices.forEach(function (d) {",
+                  "  if (d.lastError) console.warn(\"Mesin\", d.deviceId, \"bermasalah:\", d.lastError);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Perangkat",
+      "description": "Daftar mesin, pemeriksaan koneksi, dan penerapan perubahan devices.json.",
+      "item": [
+        {
+          "name": "Daftar perangkat",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/devices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "devices"
+              ],
+              "query": []
+            },
+            "description": "Mesin yang terdaftar di devices.json beserta kondisi cache dan\nsinkronisasinya. Dijawab dari memori, tidak menyentuh jaringan.\n\nJalankan ini lebih dulu: hasilnya mengisi variabel deviceId yang dipakai\nrequest penyaringan per mesin."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"Permintaan berhasil\", function () {",
+                  "  pm.expect(pm.response.code, body.message || \"\").to.eql(200);",
+                  "});",
+                  "",
+                  "if (body.success) {",
+                  "  pm.test(\"Minimal ada satu mesin terdaftar\", function () {",
+                  "    pm.expect(body.data.length).to.be.above(0);",
+                  "  });",
+                  "",
+                  "  body.data.forEach(function (d) {",
+                  "    console.log(d.deviceId, d.ip + \":\" + d.port, \"enabled=\" + d.enabled, \"log=\" + d.totalRecords, d.lastError || \"\");",
+                  "  });",
+                  "",
+                  "  // Pilih mesin yang sudah punya data supaya contoh filter menghasilkan baris.",
+                  "  const usable = body.data.filter(function (d) { return d.enabled && d.totalRecords > 0; });",
+                  "  if (!pm.variables.get(\"deviceId\") && usable.length) {",
+                  "    pm.collectionVariables.set(\"deviceId\", usable[0].deviceId);",
+                  "    console.log(\"Variabel deviceId diisi otomatis:\", usable[0].deviceId);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Info perangkat (konek ke mesin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/devices/info",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "devices",
+                "info"
+              ],
+              "query": []
+            },
+            "description": "Menghubungi setiap mesin aktif secara paralel dan melaporkan jumlah user,\njumlah log, serta kapasitasnya.\n\nMesin yang tidak bisa dihubungi muncul dengan reachable false beserta pesan\nkesalahannya, bukan menggagalkan seluruh request. Ini langkah pertama saat\nmenelusuri masalah koneksi."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"Permintaan berhasil\", function () {",
+                  "  pm.expect(pm.response.code, body.message || \"\").to.eql(200);",
+                  "});",
+                  "",
+                  "if (body.success) {",
+                  "  pm.test(\"Semua mesin aktif bisa dihubungi\", function () {",
+                  "    pm.expect(body.meta.reachable, \"mesin terjangkau\").to.eql(body.meta.total);",
+                  "  });",
+                  "",
+                  "  body.data.forEach(function (d) {",
+                  "    if (d.reachable) {",
+                  "      console.log(d.deviceId, d.ip, \"user=\" + d.userCounts, \"log=\" + d.logCounts, \"kapasitas=\" + d.logCapacity);",
+                  "    } else {",
+                  "      console.warn(d.deviceId, d.ip, \"tidak terjangkau:\", d.error);",
+                  "    }",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reload devices.json",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/devices/reload",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "devices",
+                "reload"
+              ],
+              "query": []
+            },
+            "description": "Membaca ulang devices.json supaya mesin bisa ditambah, dipindah alamat,\natau dinonaktifkan tanpa restart service.\n\nHanya berkas lokal yang dibaca. Tidak ada bagian dari daftar mesin yang\nbisa disetel lewat isi request.\n\nBerkas yang rusak tidak menjatuhkan service: daftar lama tetap berlaku dan\npesan kesalahannya muncul di field error."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"Permintaan berhasil\", function () {",
+                  "  pm.expect(pm.response.code, body.message || \"\").to.eql(200);",
+                  "});",
+                  "",
+                  "if (body.success) {",
+                  "  pm.test(\"devices.json terbaca tanpa kesalahan\", function () {",
+                  "    pm.expect(body.data.error, \"error devices.json\").to.be.null;",
+                  "  });",
+                  "",
+                  "  console.log(\"Dimuat dari:\", body.data.loadedFrom, \"| jumlah mesin:\", body.data.total);",
+                  "  if (body.data.removedFromCache) console.log(\"Cache mesin lama dibuang:\", body.data.removedFromCache);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 - Karyawan",
+      "description": "Daftar karyawan gabungan dari seluruh mesin.",
+      "item": [
+        {
+          "name": "Daftar karyawan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/employees",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "employees"
+              ],
+              "query": [
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "description": "Filter per mesin. Bisa banyak, dipisah koma. Kosong berarti semua mesin.",
+                  "disabled": true
+                },
+                {
+                  "key": "refresh",
+                  "value": "true",
+                  "description": "Isi true untuk memaksa tarik ulang dari semua mesin dan mengabaikan cache.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Karyawan dari semua mesin, digabung jadi satu daftar. Satu orang yang\nterdaftar di beberapa mesin tetap muncul satu baris, dengan deviceIds\nmenyebut mesin mana saja.\n\nHasilnya mengisi variabel userId yang dipakai request penyaringan per karyawan."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"Permintaan berhasil\", function () {",
+                  "  pm.expect(pm.response.code, body.message || \"\").to.eql(200);",
+                  "});",
+                  "",
+                  "if (body.success) {",
+                  "  pm.test(\"Daftar karyawan tidak kosong\", function () {",
+                  "    pm.expect(body.data.length).to.be.above(0);",
+                  "  });",
+                  "",
+                  "  const lintas = body.data.filter(function (u) { return u.deviceIds.length > 1; });",
+                  "  console.log(\"Total karyawan:\", body.data.length, \"| terdaftar di lebih dari satu mesin:\", lintas.length);",
+                  "",
+                  "  if (!pm.variables.get(\"userId\") && body.data.length) {",
+                  "    pm.collectionVariables.set(\"userId\", body.data[0].userId);",
+                  "    console.log(\"Variabel userId diisi otomatis:\", body.data[0].userId);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Daftar karyawan - satu mesin",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/employees?deviceId={{deviceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "employees"
+              ],
+              "query": [
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "description": "Filter per mesin. Bisa banyak, dipisah koma. Kosong berarti semua mesin."
+                }
+              ]
+            },
+            "description": "Hanya karyawan yang terdaftar di mesin tersebut."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 - Log absensi",
+      "description": "Penarikan log mentah dengan berbagai kombinasi filter.",
+      "item": [
+        {
+          "name": "Log absensi - rentang tanggal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance?start={{start}}&end={{end}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "{{start}}",
+                  "description": "Awal rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 00:00:00."
+                },
+                {
+                  "key": "end",
+                  "value": "{{end}}",
+                  "description": "Akhir rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 23:59:59."
+                },
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "description": "Filter per mesin. Bisa banyak, dipisah koma. Kosong berarti semua mesin.",
+                  "disabled": true
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "description": "Filter No.ID karyawan. Bisa banyak, dipisah koma: 200,201,238",
+                  "disabled": true
+                },
+                {
+                  "key": "name",
+                  "value": "",
+                  "description": "Cari nama karyawan, tidak peka huruf besar/kecil.",
+                  "disabled": true
+                },
+                {
+                  "key": "order",
+                  "value": "asc",
+                  "description": "Urutan waktu: asc atau desc. Default asc.",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Halaman, dimulai dari 1.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "1000",
+                  "description": "Jumlah baris per halaman. Default 1000, maksimal 10000.",
+                  "disabled": true
+                },
+                {
+                  "key": "refresh",
+                  "value": "true",
+                  "description": "Isi true untuk memaksa tarik ulang dari semua mesin dan mengabaikan cache.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Log absensi mentah dari semua mesin, digabung dan diurutkan menurut waktu.\nIni endpoint utama untuk integrasi ke Talenta.\n\nPerhatikan meta.complete pada respons. Nilainya false berarti ada mesin\naktif yang belum pernah tersinkronisasi, jadi hasilnya belum lengkap."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"Permintaan berhasil\", function () {",
+                  "  pm.expect(pm.response.code, body.message || \"\").to.eql(200);",
+                  "});",
+                  "",
+                  "// Pemeriksaan isi hanya masuk akal bila server benar-benar membalas data.",
+                  "if (body.success) {",
+                  "  pm.test(\"Rentang pada meta sesuai permintaan\", function () {",
+                  "    pm.expect(body.meta.start).to.include(pm.variables.get(\"start\"));",
+                  "    pm.expect(body.meta.end).to.include(pm.variables.get(\"end\"));",
+                  "  });",
+                  "",
+                  "  pm.test(\"Setiap log punya userId, timestamp, dan asal mesin\", function () {",
+                  "    body.data.forEach(function (row) {",
+                  "      pm.expect(row).to.have.property(\"userId\");",
+                  "      pm.expect(row.deviceId, \"deviceId\").to.be.a(\"string\").and.not.empty;",
+                  "      pm.expect(row.timestamp).to.match(/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$/);",
+                  "    });",
+                  "  });",
+                  "",
+                  "  pm.test(\"Hasil mencakup semua mesin aktif\", function () {",
+                  "    pm.expect(body.meta.pendingDevices, \"mesin yang belum sync\").to.be.an(\"array\").that.is.empty;",
+                  "  });",
+                  "",
+                  "  body.meta.devices.filter(function (d) { return d.error; }).forEach(function (d) {",
+                  "    console.warn(\"Mesin bermasalah:\", d.deviceId, d.error);",
+                  "  });",
+                  "",
+                  "  const perMesin = {};",
+                  "  body.data.forEach(function (row) { perMesin[row.deviceId] = (perMesin[row.deviceId] || 0) + 1; });",
+                  "  console.log(\"Total log cocok:\", body.meta.total, \"| sebaran halaman ini:\", JSON.stringify(perMesin));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Log absensi - hari ini",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": []
+            },
+            "description": "Tanpa parameter start dan end, rentang otomatis diisi hari ini pukul 00:00:00 sampai 23:59:59."
+          },
+          "response": []
+        },
+        {
+          "name": "Log absensi - satu mesin",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance?start={{start}}&end={{end}}&deviceId={{deviceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "{{start}}",
+                  "description": "Awal rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 00:00:00."
+                },
+                {
+                  "key": "end",
+                  "value": "{{end}}",
+                  "description": "Akhir rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 23:59:59."
+                },
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "description": "Filter per mesin. Bisa banyak, dipisah koma. Kosong berarti semua mesin."
+                }
+              ]
+            },
+            "description": "Hanya log dari satu mesin. Jalankan Daftar perangkat lebih dulu supaya variabel deviceId terisi."
+          },
+          "response": []
+        },
+        {
+          "name": "Log absensi - satu karyawan, semua mesin",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance?start={{start}}&end={{end}}&userId={{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "{{start}}",
+                  "description": "Awal rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 00:00:00."
+                },
+                {
+                  "key": "end",
+                  "value": "{{end}}",
+                  "description": "Akhir rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 23:59:59."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "description": "Filter No.ID karyawan. Bisa banyak, dipisah koma: 200,201,238"
+                }
+              ]
+            },
+            "description": "Jejak satu karyawan di seluruh mesin, berguna untuk menelusuri orang\nyang masuk lewat satu gerbang dan pulang lewat gerbang lain."
+          },
+          "response": []
+        },
+        {
+          "name": "Log absensi - beberapa karyawan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance?start={{start}}&end={{end}}&userId=118060054,119030150,121080284",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "{{start}}",
+                  "description": "Awal rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 00:00:00."
+                },
+                {
+                  "key": "end",
+                  "value": "{{end}}",
+                  "description": "Akhir rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 23:59:59."
+                },
+                {
+                  "key": "userId",
+                  "value": "118060054,119030150,121080284",
+                  "description": "Filter No.ID karyawan. Bisa banyak, dipisah koma: 200,201,238"
+                }
+              ]
+            },
+            "description": "Beberapa No.ID sekaligus, dipisah koma tanpa spasi."
+          },
+          "response": []
+        },
+        {
+          "name": "Log absensi - jendela jam masuk satu hari",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance?start={{end}} 06:00:00&end={{end}} 10:00:00",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "{{end}} 06:00:00",
+                  "description": "Awal rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 00:00:00."
+                },
+                {
+                  "key": "end",
+                  "value": "{{end}} 10:00:00",
+                  "description": "Akhir rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 23:59:59."
+                }
+              ]
+            },
+            "description": "Rentang bisa menyertakan jam, di sini pukul 06:00 sampai 10:00 pada hari yang sama\nuntuk memeriksa keterlambatan jam masuk.\n\nPerhatikan bahwa rentang bersifat kontinu, bukan per hari. Memakai start 01-09 06:00\ndan end 10-09 10:00 berarti seluruh waktu di antara kedua titik itu ikut terambil,\ntermasuk tengah malam, bukan hanya jam 06:00 sampai 10:00 tiap harinya."
+          },
+          "response": []
+        },
+        {
+          "name": "Log absensi - cari nama, terbaru dulu",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance?start={{start}}&end={{end}}&name=surianto&order=desc&limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "{{start}}",
+                  "description": "Awal rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 00:00:00."
+                },
+                {
+                  "key": "end",
+                  "value": "{{end}}",
+                  "description": "Akhir rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 23:59:59."
+                },
+                {
+                  "key": "name",
+                  "value": "surianto",
+                  "description": "Cari nama karyawan, tidak peka huruf besar/kecil."
+                },
+                {
+                  "key": "order",
+                  "value": "desc",
+                  "description": "Urutan waktu: asc atau desc. Default asc."
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "Jumlah baris per halaman. Default 1000, maksimal 10000."
+                }
+              ]
+            },
+            "description": "Pencarian nama dikombinasikan dengan urutan menurun dan pembatasan jumlah baris."
+          },
+          "response": []
+        },
+        {
+          "name": "Log absensi - paginasi halaman 2",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance?start={{start}}&end={{end}}&page=2&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "{{start}}",
+                  "description": "Awal rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 00:00:00."
+                },
+                {
+                  "key": "end",
+                  "value": "{{end}}",
+                  "description": "Akhir rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 23:59:59."
+                },
+                {
+                  "key": "page",
+                  "value": "2",
+                  "description": "Halaman, dimulai dari 1."
+                },
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "description": "Jumlah baris per halaman. Default 1000, maksimal 10000."
+                }
+              ]
+            },
+            "description": "Gunakan meta.totalPages pada respons untuk mengetahui jumlah halaman yang tersedia."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 - Rekap harian",
+      "description": "Log mentah yang sudah diringkas menjadi jam masuk dan jam pulang.",
+      "item": [
+        {
+          "name": "Rekap harian - rentang tanggal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance/daily?start={{start}}&end={{end}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance",
+                "daily"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "{{start}}",
+                  "description": "Awal rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 00:00:00."
+                },
+                {
+                  "key": "end",
+                  "value": "{{end}}",
+                  "description": "Akhir rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 23:59:59."
+                },
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}",
+                  "description": "Filter per mesin. Bisa banyak, dipisah koma. Kosong berarti semua mesin.",
+                  "disabled": true
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "description": "Filter No.ID karyawan. Bisa banyak, dipisah koma: 200,201,238",
+                  "disabled": true
+                },
+                {
+                  "key": "order",
+                  "value": "asc",
+                  "description": "Urutan waktu: asc atau desc. Default asc.",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Halaman, dimulai dari 1.",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "1000",
+                  "description": "Jumlah baris per halaman. Default 1000, maksimal 10000.",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Satu baris per karyawan per tanggal: scan pertama sebagai jam masuk, scan terakhir sebagai jam pulang.\n\nPengelompokan sengaja mengabaikan mesin mana yang merekam, jadi karyawan yang\nmasuk lewat satu gerbang dan pulang lewat gerbang lain tetap menghasilkan satu\nbaris yang benar. Field deviceIds menyebut mesin mana saja yang terlibat.\n\ncheckOut dan durationMinutes bernilai null bila karyawan hanya scan sekali pada tanggal tersebut."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"Permintaan berhasil\", function () {",
+                  "  pm.expect(pm.response.code, body.message || \"\").to.eql(200);",
+                  "});",
+                  "",
+                  "if (body.success) {",
+                  "  pm.test(\"Jam pulang tidak mendahului jam masuk\", function () {",
+                  "    body.data.forEach(function (row) {",
+                  "      if (row.checkOut) {",
+                  "        pm.expect(row.checkOut >= row.checkIn, row.userId + \" \" + row.date).to.be.true;",
+                  "      }",
+                  "    });",
+                  "  });",
+                  "",
+                  "  pm.test(\"Hasil mencakup semua mesin aktif\", function () {",
+                  "    pm.expect(body.meta.pendingDevices, \"mesin yang belum sync\").to.be.an(\"array\").that.is.empty;",
+                  "  });",
+                  "",
+                  "  body.meta.devices.filter(function (d) { return d.error; }).forEach(function (d) {",
+                  "    console.warn(\"Mesin bermasalah:\", d.deviceId, d.error);",
+                  "  });",
+                  "",
+                  "  const sekaliScan = body.data.filter(function (row) { return row.totalScan === 1; });",
+                  "  const lintasMesin = body.data.filter(function (row) { return row.deviceIds.length > 1; });",
+                  "  if (sekaliScan.length) console.warn(\"Karyawan yang hanya scan sekali:\", sekaliScan.length, \"baris\");",
+                  "  if (lintasMesin.length) console.log(\"Hari kerja yang memakai lebih dari satu mesin:\", lintasMesin.length, \"baris\");",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rekap harian - satu karyawan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance/daily?start={{start}}&end={{end}}&userId={{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance",
+                "daily"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "{{start}}",
+                  "description": "Awal rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 00:00:00."
+                },
+                {
+                  "key": "end",
+                  "value": "{{end}}",
+                  "description": "Akhir rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 23:59:59."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "description": "Filter No.ID karyawan. Bisa banyak, dipisah koma: 200,201,238"
+                }
+              ]
+            },
+            "description": "Rekap kehadiran satu karyawan sepanjang rentang, berguna untuk verifikasi manual."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06 - Cache",
+      "description": "Kendali sinkronisasi dengan mesin.",
+      "item": [
+        {
+          "name": "Refresh cache",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cache/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cache",
+                "refresh"
+              ],
+              "query": []
+            },
+            "description": "Memaksa unduh ulang penuh dari semua mesin aktif lalu menggabungkannya\ndengan data yang sudah tersimpan. Semua mesin ditarik paralel.\n\nBiasanya kamu tidak perlu memanggil ini. Server sudah menyegarkan cache\nsendiri menurut SYNC_INTERVAL_SECONDS. Pakai endpoint ini hanya bila kamu\nbutuh data paling baru saat itu juga, misalnya setelah menambah karyawan\ndi salah satu mesin."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Hindari nama variabel \"data\", sandbox Postman sudah memakainya.",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test(\"Permintaan berhasil\", function () {",
+                  "  pm.expect(pm.response.code, body.message || \"\").to.eql(200);",
+                  "});",
+                  "",
+                  "if (body.success) {",
+                  "  pm.test(\"Sinkronisasi menghasilkan data\", function () {",
+                  "    pm.expect(body.data.totalRecords).to.be.above(0);",
+                  "  });",
+                  "",
+                  "  console.log(\"Total gabungan:\", body.data.totalRecords, \"log |\", body.data.totalUsers, \"karyawan\");",
+                  "  body.data.devices.forEach(function (d) {",
+                  "    if (d.error) console.warn(\" \", d.deviceId, \"gagal:\", d.error);",
+                  "    else console.log(\" \", d.deviceId, d.totalRecords, \"log | sync\", d.lastSyncAt);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "07 - Contoh respons error",
+      "description": "Request yang sengaja salah, untuk melihat bentuk respons error.",
+      "item": [
+        {
+          "name": "Error 400 - tanggal tidak valid",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance?start=2026-13-01",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "2026-13-01",
+                  "description": "Bulan 13 tidak ada, server menolak dengan kode 400."
+                }
+              ]
+            },
+            "description": "Format tanggal salah dibalas kode 400 beserta pesan dalam Bahasa Indonesia."
+          },
+          "response": []
+        },
+        {
+          "name": "Error 400 - end mendahului start",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance?start=2026-09-09&end=2026-09-01",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "2026-09-09",
+                  "description": "Awal rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 00:00:00."
+                },
+                {
+                  "key": "end",
+                  "value": "2026-09-01",
+                  "description": "Akhir rentang. Format YYYY-MM-DD atau YYYY-MM-DD HH:mm:ss. Tanpa jam berarti 23:59:59."
+                }
+              ]
+            },
+            "description": "Rentang terbalik ditolak sebelum data diproses."
+          },
+          "response": []
+        },
+        {
+          "name": "Error 400 - deviceId tidak dikenal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attendance?deviceId=mesin-yang-tidak-ada",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attendance"
+              ],
+              "query": [
+                {
+                  "key": "deviceId",
+                  "value": "mesin-yang-tidak-ada",
+                  "description": "Id mesin divalidasi terhadap devices.json."
+                }
+              ]
+            },
+            "description": "Salah ketik nama mesin ditolak dengan kode 400 dan daftar mesin yang\ntersedia, bukan diam-diam mengembalikan hasil kosong."
+          },
+          "response": []
+        },
+        {
+          "name": "Error 404 - endpoint tidak dikenal",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/tidak-ada",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tidak-ada"
+              ],
+              "query": []
+            },
+            "description": "Semua endpoint yang tidak terdaftar dibalas kode 404 dengan amplop yang sama."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
