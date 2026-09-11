@@ -103,11 +103,15 @@ const syncDevice = async (device) => {
     lastError.set(device.id, err.message);
 
     if (previous) {
-      // Serve stale data rather than failing outright when the terminal is busy.
-      console.warn(`[attendance] ${device.id} sync gagal, memakai cache lama: ${err.message}`);
+      // Keep serving the stale snapshot, but annotate it and still fail the
+      // call. Returning normally here would report an unreachable terminal as a
+      // successful sync and leave scheduler.lastError null, hiding an outage.
+      // fetchedAt is deliberately left untouched so the device stays stale and
+      // the next scheduled run retries it.
+      console.warn(`[attendance] ${device.id} sync gagal, cache lama tetap dipakai: ${err.message}`);
       snapshots.set(device.id, { ...previous, warning: `Sinkronisasi terakhir gagal: ${err.message}` });
-      revision += 1;
-      return snapshots.get(device.id);
+      // No revision bump: the record set did not change, only the warning text,
+      // so the merged view does not need re-sorting.
     }
 
     throw new Error(`${device.name} (${device.ip || config.source}): ${err.message}`);
@@ -215,7 +219,7 @@ const syncStaleDevices = async () => {
     devices: results.map((result, index) => ({
       deviceId: targets[index].id,
       ok: result.status === 'fulfilled',
-      added: result.status === 'fulfilled' ? result.value.lastAdded : null,
+      added: result.status === 'fulfilled' ? result.value.lastAdded || 0 : null,
       total: result.status === 'fulfilled' ? result.value.records.length : null,
       error: result.status === 'rejected' ? result.reason.message : null,
     })),

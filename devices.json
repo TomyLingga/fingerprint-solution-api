@@ -20,6 +20,13 @@
       "ip": "192.168.1.99",
       "port": 4370,
       "enabled": true
+    },
+    {
+      "id": "mesin-4",
+      "name": "Mesin RO Medan",
+      "ip": "103.193.145.61",
+      "port": 4370,
+      "enabled": true
     }
   ]
 }

@@ -56,8 +56,11 @@ const run = async () => {
       for (const device of result.devices.filter((d) => d.ok)) {
         console.log(`[scheduler] ${device.deviceId}: ${device.added} log baru, total ${device.total}`);
       }
-      for (const device of failed) {
-        console.warn(`[scheduler] ${device.deviceId} gagal: ${device.error}`);
+      if (failed.length > 0) {
+        // The attendance service already logged the reason per device, so a
+        // single summary line here is enough to see the scale of the outage.
+        const names = failed.map((device) => device.deviceId).join(', ');
+        console.warn(`[scheduler] ${failed.length} dari ${result.devices.length} mesin gagal: ${names}`);
       }
 
       lastError = failed.length > 0 ? failed.map((device) => `${device.deviceId}: ${device.error}`).join('; ') : null;
