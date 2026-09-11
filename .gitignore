@@ -2,3 +2,10 @@ node_modules/
 .env
 *.log
 data/
+
+# Konfigurasi asisten AI, dipakai lokal saja
+CLAUDE.md
+.claude/
+
+# graphify: hasil graf bisa dibangun ulang kapan saja dengan `graphify update .`
+graphify-out/

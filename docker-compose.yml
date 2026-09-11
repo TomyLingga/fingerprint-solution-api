@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  fingerprint-api:
+    build:
+      context: .
+    container_name: fingerprint-api-app
+    ports:
+      # 3017 di host -> 3000 di dalam container
+      - "3017:3000"
+    env_file:
+      - .env
+    environment:
+      # Dipasang setelah env_file, jadi menimpanya. PORT dikunci supaya
+      # pemetaan 3017:3000 tidak rusak kalau .env disunting, dan TZ dikunci
+      # karena harus sama dengan setelan jam mesin fingerprint.
+      - PORT=3000
+      - TZ=Asia/Jakarta
+    volumes:
+      # Cache per mesin. Tanpa ini setiap restart mengunduh ulang 280 ribu log
+      # dari ketiga mesin, sekitar satu menit sebelum API siap melayani.
+      - ./data:/app/data
+      # Daftar mesin bisa disunting dari host lalu diterapkan dengan
+      # POST /api/v1/devices/reload tanpa membangun ulang image.
+      - ./devices.json:/app/devices.json:ro
+    restart: unless-stopped
+    # Menyediakan PID 1 yang benar sehingga sinyal dan proses yatim tertangani.
+    init: true
+    # Memberi waktu request yang sedang menunggu unduhan untuk selesai sebelum
+    # container dipaksa berhenti.
+    stop_grace_period: 20s
+    networks:
+      - fingerprint-internal
+
+networks:
+  fingerprint-internal:
+    name: fingerprint-internal

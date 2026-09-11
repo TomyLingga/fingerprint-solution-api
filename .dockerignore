@@ -1,0 +1,26 @@
+# Dependensi dipasang ulang di dalam image lewat npm ci
+node_modules/
+
+# Rahasia dan konfigurasi lokal: disuntikkan saat runtime lewat env_file
+.env
+
+# Data runtime: dipasang sebagai volume, bukan dibakar ke image
+data/
+
+# Keluaran alat bantu pengembangan
+graphify-out/
+.claude/
+CLAUDE.md
+*.log
+
+# Riwayat dan berkas yang tidak dipakai saat runtime
+.git/
+.gitignore
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Kelengkapan pengujian, tidak diperlukan container
+postman/
+*.xls
+*.xlsx

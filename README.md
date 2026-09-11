@@ -41,6 +41,52 @@ npm run check:device               # cek semua mesin sekaligus
 npm run check:device -- mesin-2    # cek satu mesin saja
 ```
 
+## Docker
+
+```bash
+cp .env.example .env        # wajib, .env tidak ikut ke image
+docker compose up -d --build
+curl http://localhost:3017/health
+```
+
+Service dipetakan ke port **3017** di host. Di dalam container tetap 3000, dan
+nilainya dikunci di `docker-compose.yml` supaya pemetaan tidak rusak kalau `.env`
+disunting.
+
+Dua volume yang penting:
+
+| Volume | Alasan |
+| --- | --- |
+| `./data:/app/data` | Cache per mesin. Tanpa ini setiap restart mengunduh ulang ratusan ribu log |
+| `./devices.json:/app/devices.json:ro` | Daftar mesin bisa disunting dari host tanpa membangun ulang image |
+
+Setelah menyunting `devices.json` di host, terapkan dengan
+`curl -X POST http://localhost:3017/api/v1/devices/reload`. Sebagian editor
+menyimpan berkas dengan cara mengganti berkas lama, bukan menimpanya. Bila itu
+terjadi, bind mount masih menunjuk berkas lama dan perubahan tidak terlihat.
+Jalankan `docker compose restart fingerprint-api` sebagai gantinya.
+
+**Zona waktu wajib benar.** Alpine tidak membawa basis data zona waktu, jadi
+`Dockerfile` memasang `tzdata`. Tanpa paket itu `TZ=Asia/Jakarta` diam-diam
+jatuh ke UTC dan setiap jam absensi bergeser 7 jam tanpa error apa pun.
+Pastikan `GET /health` melaporkan `"timezone": "Asia/Jakarta"`.
+
+**Container harus bisa menjangkau mesin fingerprint.** Jaringan bridge bawaan
+Docker meneruskan koneksi keluar ke LAN, jadi biasanya langsung jalan. Kalau
+`/api/v1/devices/info` melaporkan semua mesin `reachable: false` padahal dari
+host bisa, ganti jaringannya dengan `network_mode: host` dan hapus blok `ports`.
+
+**Jalankan satu instance saja.** Tiap instance punya scheduler sendiri dan akan
+menarik mesin yang sama secara terpisah. Bila nanti ada beberapa replika, matikan
+scheduler di semua kecuali satu lewat `SYNC_ENABLED=false`.
+
+Diagnostik di dalam container:
+
+```bash
+docker compose exec fingerprint-api npm run check:device
+docker compose logs -f fingerprint-api
+```
+
 ## Mesin fingerprint
 
 Semua terminal didaftarkan di [devices.json](devices.json). IP dan port tidak
