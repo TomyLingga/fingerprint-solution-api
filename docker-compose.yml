@@ -17,9 +17,15 @@ services:
       - PORT=3000
       - TZ=Asia/Jakarta
     volumes:
-      # Cache per mesin. Tanpa ini setiap restart mengunduh ulang 280 ribu log
-      # dari ketiga mesin, sekitar satu menit sebelum API siap melayani.
-      - ./data:/app/data
+      # Cache per mesin. Tanpa ini setiap restart mengunduh ulang seluruh log
+      # dari semua mesin sebelum API siap melayani.
+      #
+      # Sengaja named volume, BUKAN bind mount ./data. Folder data/ di-gitignore,
+      # jadi tidak ada setelah clone. Docker lalu membuatnya sebagai milik root,
+      # sedangkan container berjalan sebagai user "node", sehingga cache gagal
+      # ditulis tanpa error yang terlihat. Named volume mewarisi kepemilikan
+      # dari image, jadi langsung bisa ditulis tanpa langkah manual.
+      - fingerprint-data:/app/data
       # Daftar mesin bisa disunting dari host lalu diterapkan dengan
       # POST /api/v1/devices/reload tanpa membangun ulang image.
       - ./devices.json:/app/devices.json:ro
@@ -31,6 +37,10 @@ services:
     stop_grace_period: 20s
     networks:
       - fingerprint-internal
+
+volumes:
+  fingerprint-data:
+    name: fingerprint-data
 
 networks:
   fingerprint-internal:

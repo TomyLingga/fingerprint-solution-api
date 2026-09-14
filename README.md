@@ -57,8 +57,21 @@ Dua volume yang penting:
 
 | Volume | Alasan |
 | --- | --- |
-| `./data:/app/data` | Cache per mesin. Tanpa ini setiap restart mengunduh ulang ratusan ribu log |
+| `fingerprint-data:/app/data` | Cache per mesin. Tanpa ini setiap restart mengunduh ulang ratusan ribu log |
 | `./devices.json:/app/devices.json:ro` | Daftar mesin bisa disunting dari host tanpa membangun ulang image |
+
+Cache sengaja memakai named volume, bukan bind mount `./data`. Folder `data/`
+di-gitignore sehingga tidak ada setelah clone. Docker akan membuatnya sebagai
+milik root, padahal container berjalan sebagai user `node`, sehingga cache gagal
+ditulis tanpa error yang terlihat dan setiap restart mengunduh ulang semuanya.
+Named volume mewarisi kepemilikan dari image sehingga langsung bisa ditulis.
+
+Untuk memeriksa atau mengosongkan cache:
+
+```bash
+docker volume inspect fingerprint-data
+docker compose down && docker volume rm fingerprint-data
+```
 
 Setelah menyunting `devices.json` di host, terapkan dengan
 `curl -X POST http://localhost:3017/api/v1/devices/reload`. Sebagian editor
