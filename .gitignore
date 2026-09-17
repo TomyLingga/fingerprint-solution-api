@@ -9,3 +9,6 @@ CLAUDE.md
 
 # graphify: hasil graf bisa dibangun ulang kapan saja dengan `graphify update .`
 graphify-out/
+
+# Koleksi Postman, dipakai lokal saja
+postman/
