@@ -6,6 +6,7 @@ const { decodeUserData72 } = require('node-zklib/utils');
 
 const { readAll } = require('./reader');
 const { decodeAttendanceBuffer, verifyLabel, stateLabel } = require('./decode');
+const { CommandChannel } = require('./clock');
 
 /**
  * A ZK terminal accepts a single control session at a time, so calls to the
@@ -137,10 +138,39 @@ const fetchInfo = (device) =>
     return { deviceId: device.id, name: device.name, ip: device.ip, port: device.port, ...info };
   });
 
+/**
+ * Runs `task` with a CommandChannel bound to the device's TCP session. The
+ * channel takes the socket over for the duration and is always disposed, so
+ * the ordinary request helpers work again afterwards on the same session.
+ */
+const withClock = (device, task) =>
+  withDevice(device, async (zk) => {
+    const channel = new CommandChannel(zk.zklibTcp, { timeoutMs: device.timeout });
+    try {
+      return await task(channel);
+    } finally {
+      channel.dispose();
+    }
+  });
+
+/** Reads the terminal's own clock as a local-time Date. */
+const readClock = (device) => withClock(device, (channel) => channel.getTime());
+
+/** Writes `date` (a local-time Date) to the terminal's clock. */
+const writeClock = (device, date) =>
+  withClock(device, async (channel) => {
+    await channel.setTime(date);
+    // Read it back so the caller sees what the machine actually stored rather
+    // than what we asked for; the two can differ by a second of rounding.
+    return channel.getTime();
+  });
+
 module.exports = {
   fetchAttendances,
   fetchUsers,
   fetchInfo,
+  readClock,
+  writeClock,
   verifyLabel,
   stateLabel,
 };

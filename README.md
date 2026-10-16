@@ -379,6 +379,78 @@ dinonaktifkan tanpa restart. Hanya berkas lokal yang dibaca. Tidak ada bagian
 dari daftar mesin yang bisa disetel lewat isi request, jadi endpoint ini tidak
 bisa dipakai untuk mengarahkan service ke alamat sembarangan.
 
+### `GET /api/v1/devices/:deviceId/clock`
+
+Membaca jam internal satu mesin dan melaporkan selisihnya terhadap jam server.
+Mesin menandai setiap log dengan jamnya sendiri, jadi kalau jam itu meleset,
+semua timestamp ikut meleset. Pakai endpoint ini untuk memastikan jam mesin benar.
+
+```bash
+curl http://localhost:3000/api/v1/devices/mesin-1/clock
+```
+
+```json
+{
+  "code": 200,
+  "success": true,
+  "data": {
+    "deviceId": "mesin-1",
+    "name": "Mesin 1",
+    "ip": "192.168.1.210",
+    "deviceTime": "2026-10-16 08:00:03",
+    "serverTime": "2026-10-16 08:00:00",
+    "driftSeconds": 3,
+    "driftMinutes": 0,
+    "timezone": "Asia/Jakarta"
+  }
+}
+```
+
+### `POST /api/v1/devices/:deviceId/clock`
+
+Menyetel jam internal mesin. Ini fungsi administrasi perangkat, setara dengan
+"sync time" di aplikasi ZKTeco. Dua mode:
+
+| Isi request | Efek |
+| --- | --- |
+| `{ "sync": true }` atau body kosong | Jam mesin disamakan dengan jam server saat ini |
+| `{ "datetime": "2026-10-16 08:00:00" }` | Jam mesin disetel ke nilai itu persis |
+
+`datetime` menerima `YYYY-MM-DD HH:mm:ss` atau `DD/MM/YYYY HH:mm`. Tanpa bagian
+jam, dianggap `00:00:00`.
+
+```bash
+curl -X POST http://localhost:3000/api/v1/devices/mesin-1/clock \
+  -H "Content-Type: application/json" \
+  -d '{"sync": true}'
+```
+
+```json
+{
+  "code": 200,
+  "success": true,
+  "data": {
+    "deviceId": "mesin-1",
+    "name": "Mesin 1",
+    "ip": "192.168.1.210",
+    "mode": "sync-server",
+    "requestedTime": "2026-10-16 08:00:00",
+    "previousDeviceTime": "2026-10-16 09:14:27",
+    "deviceTime": "2026-10-16 08:00:00",
+    "serverTime": "2026-10-16 08:00:00",
+    "driftSeconds": 0
+  }
+}
+```
+
+Jam yang dikembalikan di `deviceTime` adalah hasil baca ulang dari mesin setelah
+disetel, bukan sekadar nilai yang diminta. Endpoint hanya tersedia saat
+`DATA_SOURCE=device`; pada mode `excel` dibalas 400 karena tidak ada mesin.
+
+Mengubah jam mesin menggeser timestamp semua log yang direkam setelahnya. Setel
+jam ke nilai selain waktu sebenarnya hanya bila Anda paham konsekuensinya pada
+integritas data absensi.
+
 ### `POST /api/v1/cache/refresh`
 
 Memaksa unduh ulang penuh dari semua mesin aktif dan melaporkan hasilnya per

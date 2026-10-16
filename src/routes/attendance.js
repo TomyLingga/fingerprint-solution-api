@@ -4,8 +4,10 @@ const express = require('express');
 
 const devices = require('../devices');
 const service = require('../services/attendance');
+const clockService = require('../services/clock');
 const { parseFilter, parseDeviceIds, asBool } = require('../utils/query');
-const { formatDateTime } = require('../utils/datetime');
+const { formatDateTime, parseBoundary } = require('../utils/datetime');
+const { badRequest } = require('../utils/errors');
 
 const router = express.Router();
 
@@ -120,6 +122,42 @@ router.get(
       meta: { total: data.length, reachable: data.filter((device) => device.reachable).length },
       data,
     });
+  })
+);
+
+// GET /api/v1/devices/:deviceId/clock
+// Reads the terminal's own clock and reports its drift from the server clock.
+// Use this to confirm a machine's time before trusting the timestamps it logs.
+router.get(
+  '/devices/:deviceId/clock',
+  handle(async (req, res) => {
+    res.json({ code: 200, success: true, data: await clockService.readClock(req.params.deviceId) });
+  })
+);
+
+// POST /api/v1/devices/:deviceId/clock
+// Sets the terminal clock. Body:
+//   { "datetime": "2026-10-16 08:00:00" }  set to an exact value
+//   { "sync": true }  or empty body        set to the server's current time
+router.post(
+  '/devices/:deviceId/clock',
+  handle(async (req, res) => {
+    const body = req.body || {};
+    const raw = body.datetime || body.dateTime || body.time;
+    let target = null;
+
+    if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+      target = parseBoundary(String(raw), 'start');
+      if (!target) {
+        throw badRequest(
+          'Field "datetime" tidak valid. Format: YYYY-MM-DD HH:mm:ss atau DD/MM/YYYY HH:mm'
+        );
+      }
+    } else if (body.sync !== undefined && asBool(body.sync) === false) {
+      throw badRequest('Sertakan "datetime", atau "sync": true untuk menyamakan dengan jam server');
+    }
+
+    res.json({ code: 200, success: true, data: await clockService.setClock(req.params.deviceId, { target }) });
   })
 );
 
