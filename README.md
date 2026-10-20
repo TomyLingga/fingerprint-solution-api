@@ -255,6 +255,7 @@ Log absensi mentah.
 | `start` | `2026-09-01` atau `2026-09-01 08:00:00` | Awal rentang. Tanpa jam berarti `00:00:00` |
 | `end` | `2026-09-10` atau `10/09/2026 17:00` | Akhir rentang. Tanpa jam berarti `23:59:59` |
 | `userId` | `200` atau `200,201,238` | Filter satu atau beberapa No.ID |
+| `uid` | `2` atau `2,3` | Filter satu atau beberapa UID karyawan, yaitu nomor internal di daftar user mesin seperti di `GET /api/v1/employees`. Dicocokkan per mesin |
 | `deviceId` | `mesin-1` atau `mesin-1,mesin-2` | Filter per mesin. Kosong berarti semua mesin |
 | `name` | `surianto` | Pencarian nama, tidak peka huruf besar/kecil |
 | `order` | `asc` \| `desc` | Urutan waktu, default `asc` |
@@ -295,6 +296,7 @@ curl "http://localhost:3000/api/v1/attendance?start=2026-09-01&end=2026-09-10&us
     {
       "uid": 13967,
       "userId": "118060054",
+      "userUid": 41,
       "name": "MArzeinlubis",
       "department": null,
       "timestamp": "2026-09-10 00:05:51",
@@ -315,6 +317,15 @@ curl "http://localhost:3000/api/v1/attendance?start=2026-09-01&end=2026-09-10&us
 `meta.complete` bernilai `false` selama masih ada mesin aktif yang belum pernah
 tersinkronisasi, dan `meta.pendingDevices` menyebut mesin mana. Pakai itu untuk
 membedakan hasil yang memang kosong dari hasil yang belum lengkap.
+
+**Dua jenis UID.** Field `uid` di setiap log adalah nomor urut record di mesin.
+Nomornya berbeda untuk setiap scan dan berputar kembali setelah 65535, jadi
+bukan identitas karyawan. UID karyawan ada di field `userUid`, diambil dari
+daftar user mesin tempat scan itu terekam. Parameter `?uid=` mencari berdasarkan
+`userUid`. Field `uid` tetap dipertahankan supaya klien lama tidak rusak.
+
+Semua filter digabung dengan logika DAN. `?uid=2&userId=118020020` menghasilkan
+kosong bila UID 2 bukan milik No.ID 118020020.
 
 ### `GET /api/v1/attendance/daily`
 

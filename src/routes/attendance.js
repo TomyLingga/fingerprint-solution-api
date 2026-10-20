@@ -21,6 +21,7 @@ const buildMeta = (filter, total, count) => {
     start: formatDateTime(filter.start),
     end: formatDateTime(filter.end),
     userId: filter.userIds ? [...filter.userIds] : null,
+    uid: filter.uids ? [...filter.uids] : null,
     deviceId: filter.deviceIds ? [...filter.deviceIds] : null,
     order: filter.order,
     page: filter.page,

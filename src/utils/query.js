@@ -58,6 +58,25 @@ const parseDeviceIds = (raw) => {
 };
 
 /**
+ * UIDs are the terminal's internal user numbers from its user list, the `uid`
+ * returned by GET /employees. They are not the `uid` on each log entry, which
+ * is a per-record serial that wraps at 65535.
+ */
+const parseUids = (raw) => {
+  const values = parseList(raw, 'uid');
+  if (!values) return null;
+
+  const uids = new Set();
+  for (const value of values) {
+    if (!/^\d+$/.test(value) || Number(value) > 65535) {
+      throw badRequest(`Parameter "uid" harus bilangan bulat 0 sampai 65535, dapat "${value}"`);
+    }
+    uids.add(Number(value));
+  }
+  return uids;
+};
+
+/**
  * Builds the range + paging filter shared by the log and daily endpoints.
  * With no start/end supplied the range defaults to today.
  */
@@ -85,6 +104,7 @@ const parseFilter = (query) => {
   }
 
   const userIds = parseList(query.userId || query.user_id || query.pin, 'userId');
+  const uids = parseUids(query.uid);
   const deviceIds = parseDeviceIds(query.deviceId || query.device);
 
   const order = String(query.order || 'asc').toLowerCase();
@@ -96,6 +116,7 @@ const parseFilter = (query) => {
     start,
     end,
     userIds,
+    uids,
     deviceIds,
     search: query.name ? String(query.name).toLowerCase().trim() : null,
     order,

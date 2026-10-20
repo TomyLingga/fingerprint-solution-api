@@ -25,7 +25,11 @@ const lastError = new Map(); // deviceId -> string
 // Bumped whenever any device snapshot changes, so the merged view is rebuilt
 // only when it actually went out of date.
 let revision = 0;
-let mergedCache = { revision: -1, records: [], users: [] };
+let mergedCache = { revision: -1, records: [], users: [], userUids: new Map() };
+
+// A UID is only meaningful on the terminal that assigned it, so lookups are
+// keyed by device and user id together.
+const userKey = (deviceId, userId) => `${deviceId}|${userId}`;
 
 const bootstrap = () => {
   for (const device of devices.list()) {
@@ -78,10 +82,22 @@ const getMerged = () => {
     }
   }
 
+  // The terminal's internal user number for each enrolled person, per device.
+  // This is the UID people look up, as opposed to the uid on a log entry,
+  // which is only a record serial.
+  const userUids = new Map();
+  for (const snapshot of snapshots.values()) {
+    for (const user of snapshot.users) {
+      if (user.uid === null || user.uid === undefined) continue;
+      userUids.set(userKey(snapshot.deviceId, String(user.userId)), Number(user.uid));
+    }
+  }
+
   mergedCache = {
     revision,
     records,
     users: [...users.values()].sort((a, b) => a.userId.localeCompare(b.userId, 'en', { numeric: true })),
+    userUids,
   };
 
   return mergedCache;
@@ -267,9 +283,12 @@ const getStatus = () => {
   };
 };
 
-const serialiseLog = (record) => ({
+const serialiseLog = (record, userUids) => ({
+  // Record serial on the terminal, wraps at 65535. Kept for compatibility.
   uid: record.uid,
   userId: record.userId,
+  // The person's UID in that terminal's user list; what `?uid=` searches.
+  userUid: userUids.get(userKey(record.deviceId, String(record.userId))) ?? null,
   name: record.name || null,
   department: record.department || null,
   timestamp: formatDateTime(record.time),
@@ -284,24 +303,39 @@ const serialiseLog = (record) => ({
   deviceIp: record.deviceIp,
 });
 
-const matches = (record, filter) => {
+/**
+ * Resolves a UID filter to the (device, user id) pairs it names, so matching a
+ * record is a single set lookup. Null when no UID filter was given.
+ */
+const usersWithUids = (merged, uids) => {
+  if (!uids) return null;
+  const allowed = new Set();
+  for (const [key, uid] of merged.userUids) {
+    if (uids.has(uid)) allowed.add(key);
+  }
+  return allowed;
+};
+
+const matches = (record, filter, allowedUsers) => {
   if (record.time < filter.start || record.time > filter.end) return false;
   if (filter.deviceIds && !filter.deviceIds.has(record.deviceId)) return false;
   if (filter.userIds && !filter.userIds.has(String(record.userId))) return false;
+  if (allowedUsers && !allowedUsers.has(userKey(record.deviceId, String(record.userId)))) return false;
   if (filter.search && !String(record.name || '').toLowerCase().includes(filter.search)) return false;
   return true;
 };
 
 const queryLogs = async (filter) => {
   const merged = await ensureData({ force: filter.refresh });
-  const matched = merged.records.filter((record) => matches(record, filter));
+  const allowedUsers = usersWithUids(merged, filter.uids);
+  const matched = merged.records.filter((record) => matches(record, filter, allowedUsers));
 
   if (filter.order === 'desc') matched.reverse();
 
   const offset = (filter.page - 1) * filter.limit;
   const page = matched.slice(offset, offset + filter.limit);
 
-  return { logs: page.map(serialiseLog), total: matched.length };
+  return { logs: page.map((record) => serialiseLog(record, merged.userUids)), total: matched.length };
 };
 
 /**
@@ -314,10 +348,11 @@ const queryLogs = async (filter) => {
  */
 const queryDaily = async (filter) => {
   const merged = await ensureData({ force: filter.refresh });
+  const allowedUsers = usersWithUids(merged, filter.uids);
   const groups = new Map();
 
   for (const record of merged.records) {
-    if (!matches(record, filter)) continue;
+    if (!matches(record, filter, allowedUsers)) continue;
 
     const date = formatDate(record.time);
     const key = `${record.userId}|${date}`;
